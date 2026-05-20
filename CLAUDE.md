@@ -56,10 +56,10 @@ Both entry points define their own `process_one()` that wires the same parse →
 2. `extractor.py` — resume text -> `CandidateProfile` (LLM call #1, tool: `record_candidate`)
 3. `scorer.py` — profile + JD -> `ScoredCandidate` (LLM call #2, tool: `record_score`). Uses prompt caching on the JD text block (`cache_control: ephemeral`)
 4. `critique.py` — optional review pass (LLM call #3, tool: `record_critique`)
-5. `reporter.py` — writes `results.json` and `report.md`, no LLM
+5. `reporter.py` — writes `results.json` and `report.md`, no LLM. Also exposes `format_cost_report()` for the stdout cost summary.
 
 **Key files:**
-- `src/models.py` — all Pydantic models (`CandidateProfile`, `ScoreReport`, `ScoredCandidate`, `CritiqueReport`, `ProcessingError`). These are the contracts between modules.
+- `src/models.py` — all Pydantic models (`CandidateProfile`, `ScoreReport`, `ScoredCandidate`, `CritiqueReport`, `ProcessingError`) plus `UsageAccumulator` (not a Pydantic model — a plain class that accumulates `response.usage` token counts across all LLM calls in a run). These are the contracts between modules.
 - `src/prompts.py` — all LLM prompts in one place. Edit prompts here, not in the module files.
 - `src/evals.py` — eval harness runner
 - `tests/evals/cases.py` — golden eval cases with expected score ranges (not exact values)
@@ -69,5 +69,6 @@ Both entry points define their own `process_one()` that wires the same parse →
 - Default model is `claude-sonnet-4-6`, set in `src/extractor.py` as `DEFAULT_MODEL`. `scorer.py` and `critique.py` redefine the same constant locally — keep them in sync.
 - Errors in individual resumes produce a `ProcessingError` (`stage` is one of `parse`/`extract`/`score`) instead of crashing the batch. A failure inside the optional critique pass does **not** produce a `ProcessingError`; it logs and falls back to the pre-critique scores.
 - `scorer.py` also exposes `score_candidate_ensemble()` which runs N scoring calls and returns median scores per dimension. Reasoning text is taken from the first run only — don't try to merge text across runs.
+- **Cost tracking:** every LLM function (`extract_candidate`, `score_candidate`, `score_candidate_ensemble`, `critique_and_maybe_revise`) accepts an optional `acc: UsageAccumulator | None = None`. The entry points (`main.py`, `app.py`) create one accumulator per run and pass it through. After the run, `format_cost_report(acc, model)` prints a breakdown (input tokens, output tokens, cache writes, cache reads, total USD) to stdout, and `write_markdown` appends the same data as a `## Cost breakdown` table at the end of `report.md`. Pricing lives in `_PRICING` in `reporter.py`; update it there if rates change.
 - Evals test score ranges (e.g., 80-100 for strong match) because LLM output varies between calls. Add new eval cases by appending to `ALL_CASES` in `tests/evals/cases.py`.
 - Per `CONTRIBUTING.MD`, prompts are treated as the teaching artifact: any prompt change should be visible in the PR description (or saved under `prompts/`), and new conventions should be reflected back into this file.

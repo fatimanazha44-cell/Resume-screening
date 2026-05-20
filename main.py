@@ -20,9 +20,9 @@ load_dotenv()
 
 from src.critique import critique_and_maybe_revise
 from src.extractor import DEFAULT_MODEL, extract_candidate
-from src.models import ProcessingError, ScoredCandidate
+from src.models import ProcessingError, ScoredCandidate, UsageAccumulator
 from src.pdf_parser import parse_pdf
-from src.reporter import write_json, write_markdown
+from src.reporter import format_cost_report, write_json, write_markdown
 from src.scorer import score_candidate
 
 Result = ScoredCandidate | ProcessingError
@@ -34,6 +34,7 @@ def process_one(
     jd: str,
     model: str,
     self_critique: bool,
+    acc: UsageAccumulator | None = None,
 ) -> Result:
     """Run one resume through parse -> extract -> score (-> critique).
 
@@ -49,21 +50,21 @@ def process_one(
 
     # 2. Extract candidate info (LLM call #1)
     try:
-        profile = extract_candidate(client, text, model=model)
+        profile = extract_candidate(client, text, model=model, acc=acc)
     except Exception as e:
         print(f"  ERROR in extract: {e}")
         return ProcessingError(source_file=name, stage="extract", message=str(e))
 
     # 3. Score against the JD (LLM call #2)
     try:
-        scored = score_candidate(client, profile, jd, name, model=model)
+        scored = score_candidate(client, profile, jd, name, model=model, acc=acc)
     except Exception as e:
         return ProcessingError(source_file=name, stage="score", message=str(e))
 
     # 4. Optional self-critique pass (LLM call #3)
     if self_critique:
         try:
-            scored = critique_and_maybe_revise(client, scored, jd, model=model)
+            scored = critique_and_maybe_revise(client, scored, jd, model=model, acc=acc)
         except Exception as e:
             # If the critique itself fails, keep the original scores rather
             # than throwing away valid work.
@@ -104,12 +105,13 @@ def run(
     )
 
     client = Anthropic()
+    acc = UsageAccumulator()
     results: list[Result] = []
 
     for i, pdf in enumerate(pdfs, start=1):
         pdf_name = os.path.basename(pdf)
         print(f"[{i}/{len(pdfs)}] {pdf_name}: processing...")
-        result = process_one(client, pdf, jd, model, self_critique)
+        result = process_one(client, pdf, jd, model, self_critique, acc=acc)
 
         if isinstance(result, ScoredCandidate):
             print(
@@ -123,8 +125,9 @@ def run(
 
     os.makedirs(output_dir, exist_ok=True)
     write_json(results, os.path.join(output_dir, "results.json"))
-    write_markdown(results, os.path.join(output_dir, "report.md"), jd_path)
+    write_markdown(results, os.path.join(output_dir, "report.md"), jd_path, acc=acc, model=model)
 
+    print(f"\n{format_cost_report(acc, model)}")
     print(f"\nDone. Output written to {output_dir}/")
     return 0
 

@@ -17,6 +17,7 @@ from src.models import (
     DimensionScore,
     ScoreReport,
     ScoredCandidate,
+    UsageAccumulator,
 )
 from src.prompts import SCORING_SYSTEM_PROMPT
 
@@ -29,6 +30,7 @@ def _score_report(
     profile: CandidateProfile,
     jd: str,
     model: str,
+    acc: UsageAccumulator | None = None,
 ) -> ScoreReport:
     """One scoring LLM call. Returns the raw ScoreReport."""
 
@@ -63,6 +65,9 @@ def _score_report(
         messages=[{"role": "user", "content": content}],
     )
 
+    if acc is not None:
+        acc.add(response.usage)
+
     tool_use = next(block for block in response.content if block.type == "tool_use")
     return ScoreReport.model_validate(tool_use.input)
 
@@ -73,10 +78,11 @@ def score_candidate(
     jd: str,
     source_file: str,
     model: str = DEFAULT_MODEL,
+    acc: UsageAccumulator | None = None,
 ) -> ScoredCandidate:
     """Score a candidate profile against a JD. Single LLM call."""
 
-    report = _score_report(client, profile, jd, model)
+    report = _score_report(client, profile, jd, model, acc=acc)
     return ScoredCandidate(
         profile=profile,
         skills_match=report.skills_match,
@@ -96,6 +102,7 @@ def score_candidate_ensemble(
     source_file: str,
     n: int = 3,
     model: str = DEFAULT_MODEL,
+    acc: UsageAccumulator | None = None,
 ) -> ScoredCandidate:
     """Run scoring N times and return per-dimension medians.
 
@@ -106,7 +113,7 @@ def score_candidate_ensemble(
     if n < 1:
         raise ValueError("n must be >= 1")
 
-    reports = [_score_report(client, profile, jd, model) for _ in range(n)]
+    reports = [_score_report(client, profile, jd, model, acc=acc) for _ in range(n)]
     first = reports[0]
 
     def _median_dim(attr: str) -> DimensionScore:

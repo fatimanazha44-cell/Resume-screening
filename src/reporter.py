@@ -14,9 +14,40 @@ Two outputs:
 import json
 from pathlib import Path
 
-from src.models import ProcessingError, ScoredCandidate
+from src.models import ProcessingError, ScoredCandidate, UsageAccumulator
+
+# Prices per million tokens. Approximations; verify at https://anthropic.com/pricing
+_PRICING: dict[str, dict[str, float]] = {
+    "claude-sonnet-4-6":         {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
+    "claude-opus-4-7":           {"input": 15.00, "output": 75.00, "cache_write": 18.75, "cache_read": 1.50},
+    "claude-haiku-4-5-20251001": {"input": 0.80,  "output": 4.00,  "cache_write": 1.00,  "cache_read": 0.08},
+}
+_DEFAULT_PRICING = _PRICING["claude-sonnet-4-6"]
 
 Result = ScoredCandidate | ProcessingError
+
+
+def format_cost_report(acc: UsageAccumulator, model: str) -> str:
+    """Return a plain-text cost breakdown suitable for printing to stdout."""
+    p = _PRICING.get(model, _DEFAULT_PRICING)
+    M = 1_000_000
+    input_cost       = acc.input_tokens          * p["input"]       / M
+    output_cost      = acc.output_tokens         * p["output"]      / M
+    cache_write_cost = acc.cache_creation_tokens * p["cache_write"] / M
+    cache_read_cost  = acc.cache_read_tokens      * p["cache_read"]  / M
+    total            = input_cost + output_cost + cache_write_cost + cache_read_cost
+
+    note = "" if model in _PRICING else f" (pricing approximated from {next(iter(_PRICING))})"
+    lines = [
+        f"Cost breakdown  model: {model}{note}",
+        f"  Input tokens      : {acc.input_tokens:>10,}   ${input_cost:.4f}",
+        f"  Output tokens     : {acc.output_tokens:>10,}   ${output_cost:.4f}",
+        f"  Cache writes      : {acc.cache_creation_tokens:>10,}   ${cache_write_cost:.4f}",
+        f"  Cache reads (hits): {acc.cache_read_tokens:>10,}   ${cache_read_cost:.4f}",
+        f"  {'─' * 44}",
+        f"  Total             : {acc.input_tokens + acc.output_tokens:>10,}   ${total:.4f}",
+    ]
+    return "\n".join(lines)
 
 
 def _split(results: list[Result]) -> tuple[list[ScoredCandidate], list[ProcessingError]]:
@@ -41,8 +72,13 @@ def write_markdown(
     results: list[Result],
     path: str | Path,
     jd_path: str | Path,
+    acc: UsageAccumulator | None = None,
+    model: str | None = None,
 ) -> None:
-    """Write a markdown report: ranked table + per-candidate breakdowns + errors."""
+    """Write a markdown report: ranked table + per-candidate breakdowns + errors.
+
+    If acc and model are supplied, a cost breakdown section is appended.
+    """
 
     candidates, errors = _split(results)
 
@@ -102,6 +138,29 @@ def write_markdown(
             # Replace pipes in the message so they don't break the table layout.
             msg = e.message.replace("|", "\\|").replace("\n", " ")
             lines.append(f"| {e.source_file} | {e.stage} | {msg} |")
+        lines.append("")
+
+    if acc is not None and model is not None:
+        p = _PRICING.get(model, _DEFAULT_PRICING)
+        M = 1_000_000
+        input_cost       = acc.input_tokens          * p["input"]       / M
+        output_cost      = acc.output_tokens         * p["output"]      / M
+        cache_write_cost = acc.cache_creation_tokens * p["cache_write"] / M
+        cache_read_cost  = acc.cache_read_tokens      * p["cache_read"]  / M
+        total            = input_cost + output_cost + cache_write_cost + cache_read_cost
+
+        note = "" if model in _PRICING else f" *(pricing approximated from `{next(iter(_PRICING))}`)*"
+        lines.append("## Cost breakdown")
+        lines.append("")
+        lines.append(f"Model: `{model}`{note}")
+        lines.append("")
+        lines.append("| Token type | Tokens | Cost (USD) |")
+        lines.append("| --- | ---: | ---: |")
+        lines.append(f"| Input             | {acc.input_tokens:,} | ${input_cost:.4f} |")
+        lines.append(f"| Output            | {acc.output_tokens:,} | ${output_cost:.4f} |")
+        lines.append(f"| Cache writes      | {acc.cache_creation_tokens:,} | ${cache_write_cost:.4f} |")
+        lines.append(f"| Cache reads (hits)| {acc.cache_read_tokens:,} | ${cache_read_cost:.4f} |")
+        lines.append(f"| **Total**         | **{acc.input_tokens + acc.output_tokens:,}** | **${total:.4f}** |")
         lines.append("")
 
     Path(path).write_text("\n".join(lines))

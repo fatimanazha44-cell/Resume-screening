@@ -12,7 +12,7 @@ unchanged. Otherwise we build a new ScoredCandidate from the revised ones.
 
 from anthropic import Anthropic
 
-from src.models import CritiqueReport, ScoredCandidate, ScoreReport
+from src.models import CritiqueReport, ScoredCandidate, ScoreReport, UsageAccumulator
 from src.prompts import CRITIQUE_SYSTEM_PROMPT
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
@@ -24,6 +24,7 @@ def critique_and_maybe_revise(
     scored: ScoredCandidate,
     jd: str,
     model: str = DEFAULT_MODEL,
+    acc: UsageAccumulator | None = None,
 ) -> ScoredCandidate:
     """Review a scored candidate. Return the original or a revised copy."""
 
@@ -70,6 +71,9 @@ def critique_and_maybe_revise(
         tool_choice={"type": "tool", "name": CRITIQUE_TOOL_NAME},
         messages=[{"role": "user", "content": user_content}],
     )
+
+    if acc is not None:
+        acc.add(response.usage)
 
     tool_use = next(block for block in response.content if block.type == "tool_use")
     report = CritiqueReport.model_validate(tool_use.input)

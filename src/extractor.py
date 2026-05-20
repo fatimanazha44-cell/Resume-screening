@@ -20,7 +20,7 @@ Prompts live in src/prompts.py, never inlined here.
 
 from anthropic import Anthropic
 
-from src.models import CandidateProfile
+from src.models import CandidateProfile, UsageAccumulator
 from src.prompts import EXTRACTION_SYSTEM_PROMPT
 
 DEFAULT_MODEL = "claude-sonnet-4-6"
@@ -31,6 +31,7 @@ def extract_candidate(
     client: Anthropic,
     resume_text: str,
     model: str = DEFAULT_MODEL,
+    acc: UsageAccumulator | None = None,
 ) -> CandidateProfile:
     """Extract a structured CandidateProfile from raw resume text."""
 
@@ -53,6 +54,9 @@ def extract_candidate(
         tool_choice={"type": "tool", "name": EXTRACTION_TOOL_NAME},
         messages=[{"role": "user", "content": resume_text}],
     )
+
+    if acc is not None:
+        acc.add(response.usage)
 
     tool_use = next(block for block in response.content if block.type == "tool_use")
     return CandidateProfile.model_validate(tool_use.input)

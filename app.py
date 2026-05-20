@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 from anthropic import Anthropic
 
 from src.extractor import DEFAULT_MODEL, extract_candidate
-from src.models import ProcessingError, ScoredCandidate
+from src.models import ProcessingError, ScoredCandidate, UsageAccumulator
 from src.pdf_parser import parse_pdf
+from src.reporter import format_cost_report
 from src.scorer import score_candidate
 from src.critique import critique_and_maybe_revise
 
@@ -16,7 +17,7 @@ load_dotenv()
 Result = ScoredCandidate | ProcessingError
 
 
-def process_one(client, pdf_path, filename, jd_text, model, self_critique):
+def process_one(client, pdf_path, filename, jd_text, model, self_critique, acc=None):
     """Run one resume through parse -> extract -> score (-> critique)."""
 
     # 1. Parse the PDF
@@ -27,20 +28,20 @@ def process_one(client, pdf_path, filename, jd_text, model, self_critique):
 
     # 2. Extract candidate info
     try:
-        profile = extract_candidate(client, resume_text, model=model)
+        profile = extract_candidate(client, resume_text, model=model, acc=acc)
     except Exception as e:
         return ProcessingError(source_file=filename, stage="extract", message=str(e))
 
-    # 2. Score against the JD
+    # 3. Score against the JD
     try:
-        scored = score_candidate(client, profile, jd_text, filename, model=model)
+        scored = score_candidate(client, profile, jd_text, filename, model=model, acc=acc)
     except Exception as e:
         return ProcessingError(source_file=filename, stage="score", message=str(e))
 
-    # 3. Optional self-critique
+    # 4. Optional self-critique
     if self_critique:
         try:
-            scored = critique_and_maybe_revise(client, scored, jd_text, model=model)
+            scored = critique_and_maybe_revise(client, scored, jd_text, model=model, acc=acc)
         except Exception:
             pass  # keep original scores if critique fails
 
@@ -95,6 +96,7 @@ if st.button("Match Resumes", type="primary"):
 
     # Process each resume
     client = Anthropic()
+    acc = UsageAccumulator()
     results = []
     progress = st.progress(0, text="Processing resumes...")
 
@@ -109,7 +111,7 @@ if st.button("Match Resumes", type="primary"):
             tmp.write(resume_file.read())
             tmp_path = tmp.name
 
-        result = process_one(client, tmp_path, resume_file.name, jd_text, model, self_critique)
+        result = process_one(client, tmp_path, resume_file.name, jd_text, model, self_critique, acc=acc)
         os.unlink(tmp_path)
         results.append(result)
 
@@ -165,3 +167,7 @@ if st.button("Match Resumes", type="primary"):
         st.subheader("Errors")
         for e in errors:
             st.error(f"**{e.source_file}** failed at `{e.stage}`: {e.message}")
+
+    # ── Cost breakdown ──
+    with st.expander("Cost breakdown"):
+        st.code(format_cost_report(acc, model))

@@ -92,3 +92,19 @@ class ProcessingError(BaseModel):
     source_file: str
     stage: Literal["parse", "extract", "score"]
     message: str
+
+
+class UsageAccumulator:
+    """Accumulates token usage across multiple API calls in a single run."""
+
+    def __init__(self) -> None:
+        self.input_tokens: int = 0
+        self.output_tokens: int = 0
+        self.cache_creation_tokens: int = 0
+        self.cache_read_tokens: int = 0
+
+    def add(self, usage) -> None:
+        self.input_tokens += usage.input_tokens
+        self.output_tokens += usage.output_tokens
+        self.cache_creation_tokens += getattr(usage, "cache_creation_input_tokens", 0) or 0
+        self.cache_read_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0

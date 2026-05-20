@@ -86,7 +86,8 @@ After all resumes are processed, `run()`:
 
 1. Creates the output directory
 2. Writes `results.json` — all candidates ranked by overall_fit score, plus any errors
-3. Writes `report.md` — a readable markdown table with rankings, per-candidate score breakdowns, and gaps
+3. Writes `report.md` — a readable markdown table with rankings, per-candidate score breakdowns, gaps, and a **cost breakdown table** at the end
+4. Prints a cost breakdown to stdout — input tokens, output tokens, cache writes, cache reads, and total USD
 
 ### The big picture
 
@@ -94,14 +95,14 @@ After all resumes are processed, `run()`:
 PDF file
    |  pdfplumber
 Raw text
-   |  Claude + tool use (LLM #1)
-Structured profile
-   |  Claude + tool use (LLM #2)
-Scores + reasoning
-   |  Claude + tool use (LLM #3, optional)
+   |  Claude + tool use (LLM #1)  ─┐
+Structured profile                  │  UsageAccumulator.add(response.usage)
+   |  Claude + tool use (LLM #2)  ─┤  accumulates across every call
+Scores + reasoning                  │
+   |  Claude + tool use (LLM #3, optional) ─┘
 Reviewed scores
    |
-results.json + report.md
+results.json + report.md + cost breakdown (stdout + report.md)
 ```
 
 The key pattern that repeats in every LLM call: **define a tool from a Pydantic
@@ -116,6 +117,10 @@ object**. This guarantees structured, typed output every time.
   can iterate on wording without touching the surrounding code.
 - **Prompt caching** — the JD is identical across every resume in a run, so
   Claude serves it from cache at ~10% of the normal cost.
+- **Cost tracking** — every API response carries a `usage` object with input
+  tokens, output tokens, cache write tokens, and cache read tokens. A
+  `UsageAccumulator` collects these across the whole run so you can see
+  exactly what a batch cost in USD.
 - An optional **self-critique** pass behind a flag that reviews scores.
 - An **eval harness** for testing LLM pipelines, because you can't assert
   exact-score equality on a probabilistic output.
@@ -163,7 +168,8 @@ Flags:
 Outputs:
 
 - `output/results.json` — machine-readable ranked list plus any errors
-- `output/report.md` — human-readable markdown report
+- `output/report.md` — human-readable markdown report with a cost breakdown table at the end
+- stdout — cost breakdown printed after the run (input tokens, output tokens, cache writes, cache reads, total USD)
 
 ## Test
 
@@ -236,3 +242,7 @@ resume_matcher/
 - **Opt-in quality flag.** `--self-critique` is off by default so a basic
   run costs two LLM calls per resume. Turn it on when you want to add a
   reflection pass.
+- **Cost visibility.** Every LLM function accepts an optional `UsageAccumulator`.
+  The entry points create one per run and pass it through the whole pipeline.
+  At the end, `reporter.format_cost_report()` converts accumulated token counts
+  to USD using a pricing table in `reporter.py` — update that table if rates change.
