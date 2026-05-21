@@ -123,4 +123,35 @@ BS Computer Science.
 )
 
 
-ALL_CASES: list[EvalCase] = [STRONG_MATCH, WEAK_MATCH, MIXED_MATCH]
+CAREER_CHANGER = EvalCase(
+    name="career_changer_ml_to_payments",
+    description="Senior ML infra engineer, 7 yrs Python/PostgreSQL/K8s, zero payments or transactional systems.",
+    jd=_PAYMENTS_JD,
+    resume_text="""Ivan Petrov
+
+7 years of experience as an ML infrastructure engineer. Currently Staff ML
+Engineer at DataMind AI (3 years). Owns the real-time feature store serving
+500M prediction requests per day. Built Python services backed by PostgreSQL
+for feature versioning and lineage tracking. Deployed and operated the entire
+ML platform on Kubernetes. Wrote postmortems for two major platform outages.
+
+Previously 3 years at AnalyticsPro as a Senior ML Engineer. Built batch
+inference pipelines in Python using Apache Spark and Airflow. Designed
+PostgreSQL schemas for experiment tracking. Some REST API work to expose model
+predictions to product teams.
+
+1 year at a startup as a Data Scientist writing statistical models in Python.
+
+Skills: Python, PostgreSQL, Kubernetes, Docker, Terraform, TensorFlow, PyTorch,
+Spark, Airflow, Redis, REST (basic), Kafka (ops only).
+
+MS Machine Learning, ETH Zurich. BS Mathematics, Moscow State University.
+""",
+    expected_skills_match=(30, 60),
+    expected_experience_match=(40, 75),
+    expected_role_relevance=(15, 45),
+    expected_overall_fit=(20, 50),
+)
+
+
+ALL_CASES: list[EvalCase] = [STRONG_MATCH, WEAK_MATCH, MIXED_MATCH, CAREER_CHANGER]

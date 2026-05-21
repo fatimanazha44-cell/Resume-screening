@@ -17,6 +17,9 @@ import os
 import sys
 
 from anthropic import Anthropic
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from src.extractor import DEFAULT_MODEL, extract_candidate
 from src.scorer import score_candidate
